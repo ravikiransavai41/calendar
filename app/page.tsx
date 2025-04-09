@@ -255,13 +255,69 @@ export default function Home() {
     }
   }
 
-  // Function to format time consistently
+  // Function to format time consistently with proper timezone handling
   const formatTime = (dateTime: string) => {
     const date = new Date(dateTime)
     return date.toLocaleTimeString('en-US', {
       hour: 'numeric',
       minute: '2-digit',
-      hour12: true
+      hour12: true,
+      timeZone: 'Asia/Kolkata' // Use IST timezone
+    })
+  }
+
+  // Function to calculate event position and width with timezone handling
+  const calculateEventPosition = (event: CalendarEvent, group: CalendarEvent[]) => {
+    const startTime = new Date(event.start?.dateTime || '')
+    const endTime = new Date(event.end?.dateTime || '')
+    
+    // Convert to IST
+    const istOffset = 5.5 * 60 * 60 * 1000 // 5 hours 30 minutes in milliseconds
+    const localStartTime = new Date(startTime.getTime() + istOffset)
+    const localEndTime = new Date(endTime.getTime() + istOffset)
+    
+    const startHour = localStartTime.getUTCHours()
+    const startMinute = localStartTime.getUTCMinutes()
+    const endHour = localEndTime.getUTCHours()
+    const endMinute = localEndTime.getUTCMinutes()
+    
+    const startPosition = (startHour + startMinute / 60) * 80
+    const duration = ((endHour - startHour) * 60 + (endMinute - startMinute)) / 60
+    const height = duration * 80
+    
+    // Find overlapping events in the same time slot
+    const overlappingEvents = group.filter(e => {
+      const eStart = new Date(e.start?.dateTime || '')
+      const eEnd = new Date(e.end?.dateTime || '')
+      return (startTime < eEnd && endTime > eStart)
+    })
+    
+    const position = overlappingEvents.indexOf(event)
+    const total = overlappingEvents.length
+    
+    // Calculate width and left position to prevent overlap
+    const width = total > 1 ? `${95 / total}%` : '95%'
+    const left = total > 1 ? `${(95 / total) * position + 2.5}%` : '2.5%'
+    
+    return {
+      top: startPosition,
+      height,
+      width,
+      left
+    }
+  }
+
+  // Function to filter events for the current day with timezone handling
+  const filterEventsForCurrentDay = (events: CalendarEvent[], targetDate: Date) => {
+    return events.filter((event) => {
+      const eventDate = new Date(event.start?.dateTime || '')
+      // Convert to IST for comparison
+      const istOffset = 5.5 * 60 * 60 * 1000
+      const localEventDate = new Date(eventDate.getTime() + istOffset)
+      
+      return localEventDate.getDate() === targetDate.getDate() &&
+             localEventDate.getMonth() === targetDate.getMonth() &&
+             localEventDate.getFullYear() === targetDate.getFullYear()
     })
   }
 
@@ -325,42 +381,6 @@ export default function Home() {
     }
 
     return groups
-  }
-
-  // Function to calculate event position and width
-  const calculateEventPosition = (event: CalendarEvent, group: CalendarEvent[]) => {
-    const startTime = new Date(event.start?.dateTime || '')
-    const endTime = new Date(event.end?.dateTime || '')
-    
-    const startHour = startTime.getHours()
-    const startMinute = startTime.getMinutes()
-    const endHour = endTime.getHours()
-    const endMinute = endTime.getMinutes()
-    
-    const startPosition = (startHour + startMinute / 60) * 64
-    const duration = ((endHour - startHour) * 60 + (endMinute - startMinute)) / 60
-    const height = duration * 64
-    
-    // Find overlapping events in the same time slot
-    const overlappingEvents = group.filter(e => {
-      const eStart = new Date(e.start?.dateTime || '')
-      const eEnd = new Date(e.end?.dateTime || '')
-      return (startTime < eEnd && endTime > eStart)
-    })
-    
-    const position = overlappingEvents.indexOf(event)
-    const total = overlappingEvents.length
-    
-    // Calculate width and left position to prevent overlap
-    const width = total > 1 ? `${95 / total}%` : '95%'
-    const left = total > 1 ? `${(95 / total) * position + 2.5}%` : '2.5%'
-    
-    return {
-      top: startPosition,
-      height,
-      width,
-      left
-    }
   }
 
   // Add settings modal component
@@ -660,13 +680,76 @@ export default function Home() {
           )}
 
           {/* Calendar view content */}
-          <div className="flex-1 overflow-auto p-4">
+          <div className="flex-1 overflow-auto p-4 h-[calc(100vh-120px)]">
             {isLoadingEvents ? (
               <div className="flex items-center justify-center h-full">
                 <div className="text-white">Loading calendar events...</div>
               </div>
             ) : (
-              <div className="bg-white/20 backdrop-blur-lg rounded-xl border border-white/20 shadow-xl h-full">
+              <div className="bg-white/20 backdrop-blur-lg rounded-xl border border-white/20 shadow-xl h-full min-h-[1920px]">
+                {currentView === "day" && (
+                  <div className="grid grid-cols-[80px_1fr] h-full min-h-[1920px] relative">
+                    {/* Time Labels */}
+                    <div className="text-white/70 sticky top-0 left-0 z-10 bg-white/5 h-full">
+                      {Array.from({ length: 24 }).map((_, hour) => (
+                        <div key={hour} className="h-20 border-b border-white/10 pr-2 text-right text-xs flex items-center justify-end">
+                          {hour === 0 ? '12 AM' : hour === 12 ? '12 PM' : hour > 12 ? `${hour - 12} PM` : `${hour} AM`}
+                        </div>
+                      ))}
+                    </div>
+                    {/* Events Column */}
+                    <div className="relative h-full">
+                      {/* Time grid lines */}
+                      <div className="absolute inset-0 h-full min-h-[1920px] w-full">
+                        {Array.from({ length: 24 }).map((_, timeIndex) => (
+                          <div key={timeIndex} className="h-20 border-b border-white/10 w-full"></div>
+                        ))}
+                      </div>
+                      {/* Current time indicator */}
+                      {currentDate.toDateString() === new Date().toDateString() && (
+                        <div 
+                          className="absolute left-0 right-0 border-t-2 border-red-500 z-10"
+                          style={{
+                            top: `${(new Date().getHours() + new Date().getMinutes() / 60) * 80}px`
+                          }}
+                        >
+                          <div className="absolute -left-2 -top-2 w-4 h-4 rounded-full bg-red-500"></div>
+                        </div>
+                      )}
+                      {/* Events */}
+                      <div className="absolute inset-0 h-full min-h-[1920px] w-full">
+                        {groupOverlappingEvents(filterEventsForCurrentDay(filteredEvents, currentDate))
+                          .map((group) => 
+                            group.map((event) => {
+                              const position = calculateEventPosition(event, group)
+                              
+                              return (
+                                <div
+                                  key={event.id}
+                                  className={`absolute ${event.color} rounded-lg p-2 text-white text-xs shadow-md cursor-pointer transition-all duration-200 ease-in-out hover:translate-y-[-2px] hover:shadow-lg ${event.isTeamsMeeting ? "border-l-4 border-white" : ""}`}
+                                  style={{
+                                    top: `${position.top}px`,
+                                    height: `${Math.max(position.height, 40)}px`,
+                                    width: position.width,
+                                    left: position.left,
+                                  }}
+                                  onClick={() => handleEventClick(event)}
+                                >
+                                  <div className="font-medium flex items-center gap-1 truncate">
+                                    {event.isTeamsMeeting && <Video className="h-3 w-3 flex-shrink-0" />}
+                                    <span className="truncate">{event.title}</span>
+                                  </div>
+                                  <div className="text-[10px] mt-1 truncate">
+                                    {formatTime(event.start?.dateTime || '')} - {formatTime(event.end?.dateTime || '')}
+                                  </div>
+                                </div>
+                              )
+                            })
+                          )}
+                      </div>
+                    </div>
+                  </div>
+                )}
                 {currentView === "month" && (
                   <div className="grid grid-cols-7 gap-1 p-2">
                     {Array.from({ length: 42 }).map((_, day) => {
@@ -719,58 +802,6 @@ export default function Home() {
                         </div>
                       )
                     })}
-                  </div>
-                )}
-                {currentView === "day" && (
-                  <div className="grid grid-cols-1">
-                    {/* Time Labels */}
-                    <div className="text-white/70">
-                      {Array.from({ length: 24 }).map((_, hour) => (
-                        <div key={hour} className="h-20 border-b border-white/10 pr-2 text-right text-xs">
-                          {hour === 0 ? '12 AM' : hour === 12 ? '12 PM' : hour > 12 ? `${hour - 12} PM` : `${hour} AM`}
-                        </div>
-                      ))}
-                    </div>
-                    {/* Events Column */}
-                    <div className="border-l border-white/20 relative">
-                      {Array.from({ length: 24 }).map((_, timeIndex) => (
-                        <div key={timeIndex} className="h-20 border-b border-white/10"></div>
-                      ))}
-                      {groupOverlappingEvents(filteredEvents
-                        .filter((event) => {
-                          const eventDate = new Date(event.start?.dateTime || '')
-                          return eventDate.getDate() === currentDate.getDate() &&
-                                 eventDate.getMonth() === currentDate.getMonth() &&
-                                 eventDate.getFullYear() === currentDate.getFullYear()
-                        }))
-                        .map((group) => 
-                          group.map((event) => {
-                            const position = calculateEventPosition(event, group)
-                            
-                            return (
-                              <div
-                                key={event.id}
-                                className={`absolute ${event.color} rounded-lg p-2 text-white text-xs shadow-md cursor-pointer transition-all duration-200 ease-in-out hover:translate-y-[-2px] hover:shadow-lg ${event.isTeamsMeeting ? "border-l-4 border-white" : ""}`}
-                                style={{
-                                  top: `${position.top}px`,
-                                  height: `${Math.max(position.height, 40)}px`,
-                                  width: position.width,
-                                  left: position.left,
-                                }}
-                                onClick={() => handleEventClick(event)}
-                              >
-                                <div className="font-medium flex items-center gap-1 truncate">
-                                  {event.isTeamsMeeting && <Video className="h-3 w-3 flex-shrink-0" />}
-                                  <span className="truncate">{event.title}</span>
-                                </div>
-                                <div className="text-[10px] mt-1 truncate">
-                                  {formatTime(event.start?.dateTime || '')} - {formatTime(event.end?.dateTime || '')}
-                                </div>
-                              </div>
-                            )
-                          })
-                        )}
-                    </div>
                   </div>
                 )}
                 {currentView === "week" && (
